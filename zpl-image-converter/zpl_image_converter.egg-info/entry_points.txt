@@ -1,0 +1,2 @@
+[console_scripts]
+zpl-to-image = zpl_image_converter.cli:main

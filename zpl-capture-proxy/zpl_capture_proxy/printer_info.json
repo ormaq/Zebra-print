@@ -1,0 +1,13 @@
+{
+  "host_identification": {
+    "model": "ZD621-200dpi",
+    "firmware": "V93.21.46Z",
+    "device_id": "8",
+    "memory": "8176KB"
+  },
+  "host_ram_status": {
+    "total_kb": 8176,
+    "available_kb": 8176,
+    "largest_free_kb": 7380
+  }
+}
