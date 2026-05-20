@@ -5,8 +5,8 @@ This command renders common ZPL label commands locally with Pillow. It does not
 call Labelary or any other web API.
 
 Examples:
-  python convert_zpl_to_image.py example.zpl --output label.png
-  python convert_zpl_to_image.py example.zpl --width 4 --height 3 --dpi 203 --output label.png
+  python -m zebra_print convert examples/example.zpl --output label.png
+  zebra-print convert examples/example.zpl --width 4 --height 3 --dpi 203 --output label.png
 """
 
 from __future__ import annotations
@@ -15,17 +15,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from .renderer import (
-    RenderOptions,
-    render_zpl_file,
-)
+from .renderer import RenderOptions, render_zpl_file
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Convert a ZPL file to a local PNG image.",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("zpl_file", nargs="?", help="Path to the ZPL file")
     parser.add_argument("-o", "--output", help="Output image path, defaults to the ZPL filename with .png")
     parser.add_argument("--dpi", type=int, default=203, help="Label DPI used for fallback sizing and PNG metadata")
@@ -46,10 +39,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
+def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if not args.zpl_file:
         parser.error("zpl_file is required")
 
@@ -79,6 +69,20 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {warning}")
 
     return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Convert a ZPL file to a local PNG image.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    return add_arguments(parser)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return run(args, parser)
 
 
 if __name__ == "__main__":

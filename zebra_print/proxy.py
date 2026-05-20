@@ -8,10 +8,9 @@ import threading
 from datetime import datetime
 from pathlib import Path
 
-from zpl_image_converter import RenderOptions, render_zpl_bytes
-
 from .printer_info import PrinterInfo, load_printer_info
 from .printing import print_image_to_windows_printer
+from .renderer import RenderOptions, render_zpl_bytes
 
 LOGGER = logging.getLogger(__name__)
 

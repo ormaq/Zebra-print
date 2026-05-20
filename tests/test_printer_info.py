@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from zpl_capture_proxy.printer_info import load_printer_info
+from zebra_print.printer_info import load_printer_info
 
 
 class PrinterInfoTests(unittest.TestCase):

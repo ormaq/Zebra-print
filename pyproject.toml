@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zebra-print"
+version = "4.0.0"
+description = "Offline ZPL rendering plus TCP capture, printing, and forwarding"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "Pillow>=10",
+]
+
+[project.scripts]
+zebra-print = "zebra_print.cli:main"
+
+[tool.setuptools.package-data]
+zebra_print = ["printer_info.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

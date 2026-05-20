@@ -5,11 +5,10 @@ from __future__ import annotations
 import argparse
 import logging
 
-from zpl_image_converter import RenderOptions
-
 from .printer_info import load_printer_info
 from .printing import list_windows_printers
 from .proxy import ZPLCaptureProxy
+from .renderer import RenderOptions
 
 
 def parse_forward_target(value: str | None) -> tuple[str | None, int | None]:
@@ -27,8 +26,7 @@ def parse_forward_target(value: str | None) -> tuple[str | None, int | None]:
     return host, port
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Capture raw ZPL jobs, render PNG copies, and optionally reprint/forward.")
+def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--list-printers", action="store_true", help="List Windows printers and exit")
     parser.add_argument("--bind-host", default="0.0.0.0", help="Host/IP to bind, defaults to all interfaces")
     parser.add_argument("--listen-port", type=int, default=9100, help="TCP port to listen on")
@@ -60,10 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
+def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     if args.list_printers:
         print(list_windows_printers())
         return 0
@@ -102,3 +97,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     proxy.start()
     return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Capture raw ZPL jobs, render PNG copies, and optionally reprint/forward.")
+    return add_arguments(parser)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    return run(args, parser)

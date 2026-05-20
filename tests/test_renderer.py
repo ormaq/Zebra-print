@@ -3,7 +3,7 @@ import unittest
 import zlib
 from pathlib import Path
 
-from zpl_image_converter.renderer import RenderOptions, crc16_ccitt_hex, render_zpl_bytes, render_zpl_file
+from zebra_print.renderer import RenderOptions, crc16_ccitt_hex, render_zpl_bytes, render_zpl_file
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +15,7 @@ def count_dark_pixels(image):
 
 class RendererTests(unittest.TestCase):
     def test_example_label_renders_nonblank(self):
-        image, report = render_zpl_file(ROOT / "example.zpl", RenderOptions())
+        image, report = render_zpl_file(ROOT / "examples" / "example.zpl", RenderOptions())
         self.assertEqual(image.size, (609, 406))
         self.assertGreater(sum(image.convert("L").histogram()[:128]), 30000)
         self.assertEqual(report.rendered_graphics, 0)

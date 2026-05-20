@@ -1,4 +1,4 @@
-"""Run `python -m zpl_image_converter` as the converter CLI."""
+"""Run `python -m zebra_print` as the unified CLI."""
 
 from .cli import main
 
