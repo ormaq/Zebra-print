@@ -7,8 +7,8 @@ import logging
 
 from .printer_info import load_printer_info
 from .printing import list_windows_printers
-from .proxy import ZPLCaptureProxy
-from .renderer import RenderOptions
+from .proxy import DEFAULT_MAX_JOB_BYTES, ZPLCaptureProxy
+from .renderer import DEFAULT_MAX_CANVAS_PIXELS, DEFAULT_MAX_GRAPHIC_BYTES, RenderOptions
 
 
 def parse_forward_target(value: str | None) -> tuple[str | None, int | None]:
@@ -21,16 +21,22 @@ def parse_forward_target(value: str | None) -> tuple[str | None, int | None]:
         port = int(port_text)
     except ValueError as exc:
         raise argparse.ArgumentTypeError("forward target port must be an integer") from exc
-    if not host or port <= 0:
-        raise argparse.ArgumentTypeError("forward target must use HOST:PORT")
+    if not host or port <= 0 or port > 65535:
+        raise argparse.ArgumentTypeError("forward target must use HOST:PORT with a port from 1 to 65535")
     return host, port
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--list-printers", action="store_true", help="List Windows printers and exit")
-    parser.add_argument("--bind-host", default="0.0.0.0", help="Host/IP to bind, defaults to all interfaces")
+    parser.add_argument("--bind-host", default="127.0.0.1", help="Host/IP to bind, defaults to localhost")
     parser.add_argument("--listen-port", type=int, default=9100, help="TCP port to listen on")
     parser.add_argument("--save-dir", default="./zpl_jobs", help="Directory for captured ZPL and rendered PNG files")
+    parser.add_argument(
+        "--max-job-bytes",
+        type=int,
+        default=DEFAULT_MAX_JOB_BYTES,
+        help="Maximum incoming ZPL job size in bytes; use 0 to disable",
+    )
     parser.add_argument("--target-printer", help="Optional Windows printer name for the rendered PNG")
     parser.add_argument(
         "--print-mode",
@@ -47,6 +53,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--dpi", type=int, default=203, help="Fallback DPI and PNG metadata")
     parser.add_argument("--width", type=float, default=4.0, help="Fallback label width in inches")
     parser.add_argument("--height", type=float, default=3.0, help="Fallback label height in inches")
+    parser.add_argument(
+        "--max-canvas-pixels",
+        type=int,
+        default=DEFAULT_MAX_CANVAS_PIXELS,
+        help="Maximum rendered canvas area in pixels; use 0 to disable",
+    )
+    parser.add_argument(
+        "--max-graphic-bytes",
+        type=int,
+        default=DEFAULT_MAX_GRAPHIC_BYTES,
+        help="Maximum decoded graphic payload size in bytes; use 0 to disable",
+    )
     parser.add_argument("--ignore-zpl-size", action="store_true", help="Ignore ^PW/^LL in incoming ZPL")
     parser.add_argument("--crop", action="store_true", help="Crop rendered PNGs to non-white content")
     parser.add_argument(
@@ -68,7 +86,10 @@ def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     forward_host = None
     forward_port = None
     if args.forward_to_zebra and not args.no_forward:
-        forward_host, forward_port = parse_forward_target(args.forward_to_zebra)
+        try:
+            forward_host, forward_port = parse_forward_target(args.forward_to_zebra)
+        except argparse.ArgumentTypeError as exc:
+            parser.error(str(exc))
 
     options = RenderOptions(
         dpi=args.dpi,
@@ -78,6 +99,8 @@ def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         crop=args.crop,
         verbose=args.verbose,
         strict_graphic_crc=args.strict_graphic_crc,
+        max_canvas_pixels=args.max_canvas_pixels,
+        max_graphic_bytes=args.max_graphic_bytes,
     )
     try:
         printer_info = load_printer_info(args.printer_info_config)
@@ -94,6 +117,7 @@ def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         forward_host=forward_host,
         forward_port=forward_port,
         printer_info=printer_info,
+        max_job_bytes=args.max_job_bytes,
     )
     proxy.start()
     return 0

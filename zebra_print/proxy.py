@@ -13,6 +13,7 @@ from .printing import print_image_to_windows_printer
 from .renderer import RenderOptions, render_zpl_bytes
 
 LOGGER = logging.getLogger(__name__)
+DEFAULT_MAX_JOB_BYTES = 25 * 1024 * 1024
 
 QUERY_COMMANDS = (
     (b"~HQES", "~HQES"),
@@ -22,6 +23,7 @@ QUERY_COMMANDS = (
     (b"~HM", "~HM"),
     (b"~HD", "~HD"),
 )
+QUERY_COMMAND_BY_PAYLOAD = {command: query_type for command, query_type in QUERY_COMMANDS}
 STANDALONE_QUERY_COMMANDS = (b"~HQES", b"~HM", b"~HD")
 WRAPPED_QUERY_COMMANDS = (b"~HI", b"~HS", b"^HH")
 
@@ -40,6 +42,7 @@ class ZPLCaptureProxy:
         forward_host: str | None = None,
         forward_port: int | None = None,
         printer_info: PrinterInfo | None = None,
+        max_job_bytes: int | None = DEFAULT_MAX_JOB_BYTES,
     ):
         self.bind_host = bind_host
         self.listen_port = listen_port
@@ -51,6 +54,7 @@ class ZPLCaptureProxy:
         self.forward_host = forward_host
         self.forward_port = forward_port
         self.printer_info = printer_info or load_printer_info()
+        self.max_job_bytes = max_job_bytes
         self.connection_count = 0
         self.count_lock = threading.Lock()
 
@@ -70,6 +74,8 @@ class ZPLCaptureProxy:
             self.render_options.dpi,
         )
         LOGGER.info("Target printer: %s", self.target_printer or "(none, save PNG only)")
+        if self.max_job_bytes is not None and self.max_job_bytes > 0:
+            LOGGER.info("Max job size: %s bytes", self.max_job_bytes)
         LOGGER.info("Printer HI: %s", self.printer_info.host_identification.payload)
         if self.forward_host and self.forward_port:
             LOGGER.info("Forward original ZPL: %s:%s", self.forward_host, self.forward_port)
@@ -151,6 +157,7 @@ class ZPLCaptureProxy:
     def _read_socket_with_query_detection(self, client_socket: socket.socket) -> bytes:
         """Read socket data with early detection for query commands."""
         chunks: list[bytes] = []
+        total_bytes = 0
         extended_for_print_job = False
         client_socket.settimeout(0.5)
 
@@ -173,6 +180,9 @@ class ZPLCaptureProxy:
             if not chunk:
                 break
             chunks.append(chunk)
+            total_bytes += len(chunk)
+            if self.max_job_bytes is not None and self.max_job_bytes > 0 and total_bytes > self.max_job_bytes:
+                raise ValueError(f"ZPL job exceeds max job size of {self.max_job_bytes} bytes")
 
             data_so_far = b"".join(chunks)
             if self._is_complete_query_command(data_so_far):
@@ -182,27 +192,25 @@ class ZPLCaptureProxy:
 
     def _is_complete_query_command(self, data: bytes) -> bool:
         """Check if data contains a complete query command."""
-        data_upper = data.upper()
-        for cmd in STANDALONE_QUERY_COMMANDS:
-            if cmd in data_upper:
-                return True
-        for cmd in WRAPPED_QUERY_COMMANDS:
-            if cmd in data_upper and b"^XZ" in data_upper:
-                return True
-        return False
+        return self._detect_query_type(data) != "UNKNOWN"
 
     def _detect_query_type(self, data: bytes) -> str:
         """Detect which type of query command was sent."""
-        data_upper = data.upper()
-        for command, query_type in QUERY_COMMANDS:
-            if command in data_upper:
+        payload = normalize_query_payload(data)
+        query_type = QUERY_COMMAND_BY_PAYLOAD.get(payload)
+        if query_type and payload in STANDALONE_QUERY_COMMANDS:
+            return query_type
+
+        if payload.startswith(b"^XA") and payload.endswith(b"^XZ"):
+            inner = payload[3:-3]
+            query_type = QUERY_COMMAND_BY_PAYLOAD.get(inner)
+            if query_type and inner in WRAPPED_QUERY_COMMANDS:
                 return query_type
         return "UNKNOWN"
 
     def _is_printer_query(self, data: bytes) -> bool:
         """Check if the ZPL data contains any printer query command."""
-        data_upper = data.upper()
-        return any(command in data_upper for command, _query_type in QUERY_COMMANDS)
+        return self._detect_query_type(data) != "UNKNOWN"
 
     def _send_query_response(self, client_socket: socket.socket, query_type: str) -> None:
         """Send the configured response for a printer query."""
@@ -222,3 +230,8 @@ class ZPLCaptureProxy:
         except Exception as exc:
             LOGGER.warning("Forward failed: %s", exc)
             return False
+
+
+def normalize_query_payload(data: bytes) -> bytes:
+    """Normalize query payloads without parsing label field contents as commands."""
+    return b"".join(data.upper().split())

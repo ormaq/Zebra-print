@@ -36,6 +36,7 @@ Useful converter options:
 zebra-print convert examples/example.zpl --crop
 zebra-print convert examples/example.zpl --dpi 203 --width 4 --height 3
 zebra-print convert examples/example.zpl --strict-graphic-crc
+zebra-print convert examples/example.zpl --max-canvas-pixels 20000000 --max-graphic-bytes 16777216
 ```
 
 ## Run The Capture Proxy
@@ -44,6 +45,13 @@ Save incoming jobs as `.zpl` and `.png` files:
 
 ```powershell
 zebra-print proxy --listen-port 9100 --save-dir zpl_jobs
+```
+
+The proxy binds to `127.0.0.1` by default. To accept jobs from other machines
+on the network, bind explicitly:
+
+```powershell
+zebra-print proxy --bind-host 0.0.0.0 --listen-port 9100 --save-dir zpl_jobs
 ```
 
 Print the rendered PNG to a Windows printer:
@@ -63,6 +71,12 @@ such as `~HI`:
 
 ```powershell
 zebra-print proxy --printer-info-config .\printer_info.local.json
+```
+
+Limit large or malformed jobs:
+
+```powershell
+zebra-print proxy --max-job-bytes 26214400 --max-canvas-pixels 20000000 --max-graphic-bytes 16777216
 ```
 
 List Windows printers:

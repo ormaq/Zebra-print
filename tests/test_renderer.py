@@ -44,6 +44,29 @@ class RendererTests(unittest.TestCase):
         self.assertLess(image.convert("L").getpixel((0, 0)), 128)
         self.assertLess(image.convert("L").getpixel((2, 0)), 128)
 
+    def test_renderer_rejects_canvas_over_pixel_limit(self):
+        zpl = b"^XA^PW100^LL100^XZ"
+
+        with self.assertRaisesRegex(ValueError, "exceeds max canvas pixels"):
+            render_zpl_bytes(zpl, RenderOptions(max_canvas_pixels=5000))
+
+    def test_renderer_warns_and_skips_graphics_over_byte_limit(self):
+        zpl = b"~DGR:BIG.GRF,11,1,80^XA^PW20^LL20^FO0,0^XGR:BIG.GRF^FS^XZ"
+
+        image, report = render_zpl_bytes(zpl, RenderOptions(max_graphic_bytes=10))
+
+        self.assertEqual(report.downloaded_graphics, 0)
+        self.assertEqual(report.rendered_graphics, 0)
+        self.assertTrue(any("exceeds max graphic bytes" in warning for warning in report.warnings))
+        self.assertEqual(count_dark_pixels(image), 0)
+
+    def test_renderer_ignores_non_positive_zpl_dimensions(self):
+        image, report = render_zpl_bytes(b"^XA^PW-1^LL-1^FO0,0^GB4,4,4^FS^XZ", RenderOptions(width_inches=0.1, height_inches=0.1))
+
+        self.assertEqual(image.size, (20, 20))
+        self.assertTrue(any("Ignoring non-positive ^PW" in warning for warning in report.warnings))
+        self.assertTrue(any("Ignoring non-positive ^LL" in warning for warning in report.warnings))
+
     def test_first_barcode_batch_renders_supported_symbols(self):
         zpl = (
             "^XA^PW720^LL480"

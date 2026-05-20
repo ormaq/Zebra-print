@@ -22,6 +22,8 @@ except ImportError as exc:  # pragma: no cover - exercised by users without deps
 CONTROL_CHARS = "^~"
 ORIENTATIONS = {"N", "R", "I", "B"}
 GRAPHIC_PAYLOAD_PATTERN = re.compile(r":?(Z64|B64):([^:]+)(?::([0-9A-Fa-f]{4}))?$", re.IGNORECASE)
+DEFAULT_MAX_CANVAS_PIXELS = 20_000_000
+DEFAULT_MAX_GRAPHIC_BYTES = 16 * 1024 * 1024
 
 
 class RenderOptions:
@@ -34,6 +36,8 @@ class RenderOptions:
         crop: bool = False,
         verbose: bool = False,
         strict_graphic_crc: bool = False,
+        max_canvas_pixels: int | None = DEFAULT_MAX_CANVAS_PIXELS,
+        max_graphic_bytes: int | None = DEFAULT_MAX_GRAPHIC_BYTES,
     ):
         self.dpi = dpi
         self.width_inches = width_inches
@@ -42,6 +46,8 @@ class RenderOptions:
         self.crop = crop
         self.verbose = verbose
         self.strict_graphic_crc = strict_graphic_crc
+        self.max_canvas_pixels = max_canvas_pixels
+        self.max_graphic_bytes = max_graphic_bytes
 
 
 class RenderReport:
@@ -605,24 +611,38 @@ class ZPLRenderer:
         for command in commands:
             if self.options.use_zpl_size and command.name == "PW":
                 width = parse_int(first_csv(command.params))
-                if width:
+                if width is not None and width > 0:
                     self.width_px = width
+                elif width is not None:
+                    self.warn(f"Ignoring non-positive ^PW width: {width}")
             elif self.options.use_zpl_size and command.name == "LL":
                 height = parse_int(first_csv(command.params))
-                if height:
+                if height is not None and height > 0:
                     self.height_px = height
+                elif height is not None:
+                    self.warn(f"Ignoring non-positive ^LL height: {height}")
             elif self.options.use_zpl_size and command.prefix == "~" and command.name == "JL":
                 height = parse_int(first_csv(command.params))
-                if height:
+                if height is not None and height > 0:
                     self.height_px = height
+                elif height is not None:
+                    self.warn(f"Ignoring non-positive ~JL height: {height}")
             elif command.prefix == "~" and command.name == "DG":
                 self._download_graphic(command.params)
             elif command.prefix == "~" and command.name == "DY":
                 self._download_object(command.params)
 
     def _create_canvas(self) -> None:
+        self._check_pixel_area(self.width_px, self.height_px, "canvas")
         self.image = Image.new("RGB", (self.width_px, self.height_px), "white")
         self.draw = ImageDraw.Draw(self.image)
+
+    def _check_pixel_area(self, width: int, height: int, label: str) -> None:
+        if width <= 0 or height <= 0:
+            raise ValueError(f"invalid {label} size: {width}x{height}px")
+        max_pixels = self.options.max_canvas_pixels
+        if max_pixels is not None and max_pixels > 0 and width * height > max_pixels:
+            raise ValueError(f"{label} size {width}x{height}px exceeds max canvas pixels {max_pixels}")
 
     def _handle_command(self, command: ZPLCommand) -> None:
         name = command.name
@@ -1309,6 +1329,7 @@ class ZPLRenderer:
         bbox = font.getbbox(text)
         text_w = max(1, bbox[2] - bbox[0])
         text_h = max(1, bbox[3] - bbox[1])
+        self._check_pixel_area(text_w + 4, text_h + 4, "text mask")
         mask = Image.new("L", (text_w + 4, text_h + 4), 0)
         temp_draw = ImageDraw.Draw(mask)
         temp_draw.text((2 - bbox[0], 2 - bbox[1]), text, fill=255, font=font)
@@ -1317,6 +1338,7 @@ class ZPLRenderer:
             scale_x = max(0.1, self.font.width / self.font.height)
             target_w = max(1, int(round(mask.width * scale_x)))
             if target_w != mask.width:
+                self._check_pixel_area(target_w, mask.height, "text mask")
                 mask = mask.resize((target_w, mask.height), Image.Resampling.BICUBIC)
 
         mask = rotate_mask(mask, self.font.orientation)
@@ -1397,7 +1419,13 @@ class ZPLRenderer:
         total = parse_int(parts[1]) or 0
         bytes_per_row = parse_int(parts[2]) or 0
         try:
-            data = decode_graphic_payload(parts[3], total, bytes_per_row, self.options.strict_graphic_crc)
+            data = decode_graphic_payload(
+                parts[3],
+                total,
+                bytes_per_row,
+                self.options.strict_graphic_crc,
+                self.options.max_graphic_bytes,
+            )
         except ValueError as exc:
             self.warn(f"Could not decode graphic {name}: {exc}")
             return
@@ -1414,7 +1442,13 @@ class ZPLRenderer:
         total, bytes_per_row, payload = parse_download_object_parts(parts)
         if total is not None and bytes_per_row is not None and payload is not None:
             try:
-                data = decode_graphic_payload(payload, total, bytes_per_row, self.options.strict_graphic_crc)
+                data = decode_graphic_payload(
+                    payload,
+                    total,
+                    bytes_per_row,
+                    self.options.strict_graphic_crc,
+                    self.options.max_graphic_bytes,
+                )
             except ValueError as exc:
                 self.warn(f"Could not decode object {name}: {exc}")
                 return
@@ -1621,9 +1655,16 @@ class ZPLRenderer:
         payload = parts[4]
         try:
             if compression == "B":
+                check_graphic_size(total, self.options.max_graphic_bytes)
                 data = payload.encode("latin-1")[:total]
             else:
-                data = decode_graphic_payload(payload, total, bytes_per_row, self.options.strict_graphic_crc)
+                data = decode_graphic_payload(
+                    payload,
+                    total,
+                    bytes_per_row,
+                    self.options.strict_graphic_crc,
+                    self.options.max_graphic_bytes,
+                )
         except ValueError as exc:
             self.warn(f"Could not decode ^GF graphic: {exc}")
             return
@@ -1635,10 +1676,13 @@ class ZPLRenderer:
         xmul = max(1, xmul)
         ymul = max(1, ymul)
         if xmul != 1 or ymul != 1:
+            self._check_pixel_area(graphic_image.width * xmul, graphic_image.height * ymul, "graphic")
             graphic_image = graphic_image.resize(
                 (graphic_image.width * xmul, graphic_image.height * ymul),
                 Image.Resampling.NEAREST,
             )
+        else:
+            self._check_pixel_area(graphic_image.width, graphic_image.height, "graphic")
         mask = Image.eval(graphic_image.convert("L"), lambda p: 255 if p < 128 else 0)
         self.image.paste("black", (self.current_x, self.current_y), mask)
 
@@ -2098,6 +2142,7 @@ class ZPLRenderer:
         tall_height = max(1, height)
         short_height = max(1, int(round(height * 0.45)))
         width = max(1, len(bars) * bar_width + max(0, len(bars) - 1) * gap)
+        self._check_pixel_area(width, tall_height, "barcode")
         mask = Image.new("L", (width, tall_height), 0)
         draw = ImageDraw.Draw(mask)
         x = 0
@@ -2112,6 +2157,7 @@ class ZPLRenderer:
 
     def _paste_1d_barcode(self, widths: list[tuple[bool, int]], height: int, orientation: str) -> None:
         total_width = sum(width for _is_bar, width in widths)
+        self._check_pixel_area(max(1, total_width), max(1, height), "barcode")
         mask = Image.new("L", (max(1, total_width), max(1, height)), 0)
         draw = ImageDraw.Draw(mask)
         x = 0
@@ -2126,6 +2172,7 @@ class ZPLRenderer:
     def _paste_bit_matrix(self, matrix: list[list[int]], module_size: int, orientation: str) -> None:
         rows = len(matrix)
         cols = len(matrix[0]) if rows else 0
+        self._check_pixel_area(max(1, cols * module_size), max(1, rows * module_size), "barcode")
         mask = Image.new("L", (cols, rows), 0)
         pixels = mask.load()
         for y, row in enumerate(matrix):
@@ -2306,7 +2353,14 @@ def rotate_mask(mask: Image.Image, orientation: str) -> Image.Image:
     return mask
 
 
-def decode_graphic_payload(payload: str, total_bytes: int, bytes_per_row: int, strict_crc: bool = False) -> bytes:
+def decode_graphic_payload(
+    payload: str,
+    total_bytes: int,
+    bytes_per_row: int,
+    strict_crc: bool = False,
+    max_bytes: int | None = DEFAULT_MAX_GRAPHIC_BYTES,
+) -> bytes:
+    check_graphic_size(total_bytes, max_bytes)
     compact = "".join(payload.split())
     compressed_match = GRAPHIC_PAYLOAD_PATTERN.search(compact)
     if compressed_match:
@@ -2324,11 +2378,19 @@ def decode_graphic_payload(payload: str, total_bytes: int, bytes_per_row: int, s
     else:
         data = decode_ascii_hex_graphic(compact, bytes_per_row)
 
+    check_graphic_size(len(data), max_bytes)
     if total_bytes and len(data) < total_bytes:
         data = data + b"\x00" * (total_bytes - len(data))
     if total_bytes and len(data) > total_bytes:
         data = data[:total_bytes]
     return data
+
+
+def check_graphic_size(size: int, max_bytes: int | None = DEFAULT_MAX_GRAPHIC_BYTES) -> None:
+    if size < 0:
+        raise ValueError(f"graphic data size must be non-negative, got {size}")
+    if max_bytes is not None and max_bytes > 0 and size > max_bytes:
+        raise ValueError(f"graphic data size {size} bytes exceeds max graphic bytes {max_bytes}")
 
 
 def crc16_ccitt_hex(data: bytes, poly: int = 0x8408) -> str:

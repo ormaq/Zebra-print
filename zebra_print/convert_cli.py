@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .renderer import RenderOptions, render_zpl_file
+from .renderer import DEFAULT_MAX_CANVAS_PIXELS, DEFAULT_MAX_GRAPHIC_BYTES, RenderOptions, render_zpl_file
 
 
 def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
@@ -24,6 +24,18 @@ def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--dpi", type=int, default=203, help="Label DPI used for fallback sizing and PNG metadata")
     parser.add_argument("--width", type=float, default=4.0, help="Fallback label width in inches")
     parser.add_argument("--height", type=float, default=3.0, help="Fallback label height in inches")
+    parser.add_argument(
+        "--max-canvas-pixels",
+        type=int,
+        default=DEFAULT_MAX_CANVAS_PIXELS,
+        help="Maximum rendered canvas area in pixels; use 0 to disable",
+    )
+    parser.add_argument(
+        "--max-graphic-bytes",
+        type=int,
+        default=DEFAULT_MAX_GRAPHIC_BYTES,
+        help="Maximum decoded graphic payload size in bytes; use 0 to disable",
+    )
     parser.add_argument(
         "--ignore-zpl-size",
         action="store_true",
@@ -56,10 +68,15 @@ def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         crop=args.crop,
         verbose=args.verbose,
         strict_graphic_crc=args.strict_graphic_crc,
+        max_canvas_pixels=args.max_canvas_pixels,
+        max_graphic_bytes=args.max_graphic_bytes,
     )
 
-    image, report = render_zpl_file(zpl_path, options)
-    image.save(output_path, dpi=(args.dpi, args.dpi))
+    try:
+        image, report = render_zpl_file(zpl_path, options)
+        image.save(output_path, dpi=(args.dpi, args.dpi))
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
 
     print(f"Rendered: {output_path}")
     print(f"Size: {image.width}x{image.height}px @ {args.dpi} DPI")
