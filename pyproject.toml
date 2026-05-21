@@ -16,7 +16,7 @@ dependencies = [
 zebra-print = "zebra_print.cli:main"
 
 [tool.setuptools.package-data]
-zebra_print = ["printer_info.json"]
+zebra_print = ["printer_info.json", "font_mapping.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

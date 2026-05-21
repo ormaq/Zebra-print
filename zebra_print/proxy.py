@@ -14,6 +14,7 @@ from .renderer import RenderOptions, render_zpl_bytes
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_MAX_JOB_BYTES = 25 * 1024 * 1024
+DEFAULT_QUERY_KEEPALIVE_TIMEOUT = 30.0
 
 QUERY_COMMANDS = (
     (b"~HQES", "~HQES"),
@@ -26,6 +27,8 @@ QUERY_COMMANDS = (
 QUERY_COMMAND_BY_PAYLOAD = {command: query_type for command, query_type in QUERY_COMMANDS}
 STANDALONE_QUERY_COMMANDS = (b"~HQES", b"~HM", b"~HD")
 WRAPPED_QUERY_COMMANDS = (b"~HI", b"~HS", b"^HH")
+
+HOST_DIRECTORY_QUERY = b"^HW"
 
 
 class ZPLCaptureProxy:
@@ -43,6 +46,7 @@ class ZPLCaptureProxy:
         forward_port: int | None = None,
         printer_info: PrinterInfo | None = None,
         max_job_bytes: int | None = DEFAULT_MAX_JOB_BYTES,
+        query_keepalive_timeout: float = DEFAULT_QUERY_KEEPALIVE_TIMEOUT,
     ):
         self.bind_host = bind_host
         self.listen_port = listen_port
@@ -55,6 +59,7 @@ class ZPLCaptureProxy:
         self.forward_port = forward_port
         self.printer_info = printer_info or load_printer_info()
         self.max_job_bytes = max_job_bytes
+        self.query_keepalive_timeout = query_keepalive_timeout
         self.connection_count = 0
         self.count_lock = threading.Lock()
 
@@ -76,6 +81,7 @@ class ZPLCaptureProxy:
         LOGGER.info("Target printer: %s", self.target_printer or "(none, save PNG only)")
         if self.max_job_bytes is not None and self.max_job_bytes > 0:
             LOGGER.info("Max job size: %s bytes", self.max_job_bytes)
+        LOGGER.info("Query keepalive timeout: %ss", self.query_keepalive_timeout)
         LOGGER.info("Printer HI: %s", self.printer_info.host_identification.payload)
         if self.forward_host and self.forward_port:
             LOGGER.info("Forward original ZPL: %s:%s", self.forward_host, self.forward_port)
@@ -100,7 +106,6 @@ class ZPLCaptureProxy:
             LOGGER.info("Processed %s connection(s)", self.connection_count)
 
     def handle_client(self, client_socket: socket.socket, address: tuple[str, int], conn_id: int) -> None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         LOGGER.info(
             "[%s] job %s from %s:%s",
             datetime.now().strftime("%H:%M:%S"),
@@ -110,56 +115,64 @@ class ZPLCaptureProxy:
         )
 
         try:
-            data = self._read_socket_with_query_detection(client_socket)
-            if not data:
-                LOGGER.debug("No data received for job %s", conn_id)
-                return
+            read_timeout = 0.5
+            request_count = 0
+            while True:
+                data = self._read_socket_with_query_detection(client_socket, initial_timeout=read_timeout)
+                if not data:
+                    LOGGER.debug("No more data received for connection %s", conn_id)
+                    return
 
-            LOGGER.info("Received %s bytes", len(data))
-            LOGGER.debug("First 100 bytes: %r", data[:100])
-            LOGGER.debug("First 50 bytes hex: %s", data[:50].hex(" "))
+                request_count += 1
+                LOGGER.info("Received %s bytes", len(data))
+                LOGGER.debug("First 100 bytes: %r", data[:100])
+                LOGGER.debug("First 50 bytes hex: %s", data[:50].hex(" "))
 
-            if self._is_printer_query(data):
-                query_type = self._detect_query_type(data)
-                LOGGER.debug("Detected printer query: %s", query_type)
-                self._send_query_response(client_socket, query_type)
-                return
+                if self._is_printer_query(data):
+                    query_type = self._detect_query_type(data)
+                    LOGGER.debug("Detected printer query: %s", query_type)
+                    self._send_query_response(client_socket, query_type)
+                    read_timeout = self.query_keepalive_timeout
+                    continue
 
-            zpl_file = self.save_dir / f"job_{timestamp}_conn{conn_id}.zpl"
-            png_file = self.save_dir / f"job_{timestamp}_conn{conn_id}.png"
-            zpl_file.write_bytes(data)
-            LOGGER.info("Saved ZPL: %s", zpl_file)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                file_stem = f"job_{timestamp}_conn{conn_id}_req{request_count}"
+                zpl_file = self.save_dir / f"{file_stem}.zpl"
+                png_file = self.save_dir / f"{file_stem}.png"
+                zpl_file.write_bytes(data)
+                LOGGER.info("Saved ZPL: %s", zpl_file)
 
-            try:
-                image, report = render_zpl_bytes(data, self.render_options)
-                image.save(png_file, dpi=(self.render_options.dpi, self.render_options.dpi))
-                LOGGER.info("Rendered PNG: %s (%sx%s px)", png_file, image.width, image.height)
-                for warning in report.warnings:
-                    LOGGER.warning("Render warning: %s", warning)
-            except Exception as exc:
-                LOGGER.warning("Render failed: %s", exc)
-                png_file = None
-
-            if png_file and self.target_printer:
                 try:
-                    print_image_to_windows_printer(png_file, self.target_printer, mode=self.print_mode)
-                    LOGGER.info("Printed PNG to: %s", self.target_printer)
+                    image, report = render_zpl_bytes(data, self.render_options)
+                    image.save(png_file, dpi=(self.render_options.dpi, self.render_options.dpi))
+                    LOGGER.info("Rendered PNG: %s (%sx%s px)", png_file, image.width, image.height)
+                    for warning in report.warnings:
+                        LOGGER.warning("Render warning: %s", warning)
                 except Exception as exc:
-                    LOGGER.warning("Print failed: %s", exc)
+                    LOGGER.warning("Render failed: %s", exc)
+                    png_file = None
 
-            if self.forward_host and self.forward_port:
-                self.forward_original_zpl(data)
+                if png_file and self.target_printer:
+                    try:
+                        print_image_to_windows_printer(png_file, self.target_printer, mode=self.print_mode)
+                        LOGGER.info("Printed PNG to: %s", self.target_printer)
+                    except Exception as exc:
+                        LOGGER.warning("Print failed: %s", exc)
+
+                if self.forward_host and self.forward_port:
+                    self.forward_original_zpl(data)
+                read_timeout = self.query_keepalive_timeout
         except Exception as exc:
             LOGGER.warning("Job %s failed: %s", conn_id, exc)
         finally:
             client_socket.close()
 
-    def _read_socket_with_query_detection(self, client_socket: socket.socket) -> bytes:
+    def _read_socket_with_query_detection(self, client_socket: socket.socket, initial_timeout: float = 0.5) -> bytes:
         """Read socket data with early detection for query commands."""
         chunks: list[bytes] = []
         total_bytes = 0
         extended_for_print_job = False
-        client_socket.settimeout(0.5)
+        client_socket.settimeout(initial_timeout)
 
         while True:
             try:
@@ -206,6 +219,8 @@ class ZPLCaptureProxy:
             query_type = QUERY_COMMAND_BY_PAYLOAD.get(inner)
             if query_type and inner in WRAPPED_QUERY_COMMANDS:
                 return query_type
+            if is_host_directory_query(inner):
+                return "^HW"
         return "UNKNOWN"
 
     def _is_printer_query(self, data: bytes) -> bool:
@@ -235,3 +250,12 @@ class ZPLCaptureProxy:
 def normalize_query_payload(data: bytes) -> bytes:
     """Normalize query payloads without parsing label field contents as commands."""
     return b"".join(data.upper().split())
+
+
+def is_host_directory_query(inner_payload: bytes) -> bool:
+    """Return true for a single ^HW command, including optional drive/path parameters."""
+    return (
+        inner_payload.startswith(HOST_DIRECTORY_QUERY)
+        and b"^" not in inner_payload[1:]
+        and b"~" not in inner_payload
+    )

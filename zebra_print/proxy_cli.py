@@ -7,7 +7,7 @@ import logging
 
 from .printer_info import load_printer_info
 from .printing import list_windows_printers
-from .proxy import DEFAULT_MAX_JOB_BYTES, ZPLCaptureProxy
+from .proxy import DEFAULT_MAX_JOB_BYTES, DEFAULT_QUERY_KEEPALIVE_TIMEOUT, ZPLCaptureProxy
 from .renderer import DEFAULT_MAX_CANVAS_PIXELS, DEFAULT_MAX_GRAPHIC_BYTES, RenderOptions
 
 
@@ -28,7 +28,7 @@ def parse_forward_target(value: str | None) -> tuple[str | None, int | None]:
 
 def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
     parser.add_argument("--list-printers", action="store_true", help="List Windows printers and exit")
-    parser.add_argument("--bind-host", default="127.0.0.1", help="Host/IP to bind, defaults to localhost")
+    parser.add_argument("--bind-host", default="0.0.0.0", help="Host/IP to bind, defaults to all interfaces")
     parser.add_argument("--listen-port", type=int, default=9100, help="TCP port to listen on")
     parser.add_argument("--save-dir", default="./zpl_jobs", help="Directory for captured ZPL and rendered PNG files")
     parser.add_argument(
@@ -36,6 +36,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_MAX_JOB_BYTES,
         help="Maximum incoming ZPL job size in bytes; use 0 to disable",
+    )
+    parser.add_argument(
+        "--query-keepalive-timeout",
+        type=float,
+        default=DEFAULT_QUERY_KEEPALIVE_TIMEOUT,
+        help="Seconds to keep a client connection open after a printer-info query",
     )
     parser.add_argument("--target-printer", help="Optional Windows printer name for the rendered PNG")
     parser.add_argument(
@@ -118,6 +124,7 @@ def run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         forward_port=forward_port,
         printer_info=printer_info,
         max_job_bytes=args.max_job_bytes,
+        query_keepalive_timeout=args.query_keepalive_timeout,
     )
     proxy.start()
     return 0

@@ -39,6 +39,14 @@ class PrinterInfoTests(unittest.TestCase):
 
         self.assertEqual(printer_info.response_for_query("~HM"), b"\x024096,3000,7380\x03\r\n")
 
+    def test_host_directory_query_returns_font_directory(self):
+        printer_info = load_printer_info()
+        response = printer_info.response_for_query("^HW")
+
+        self.assertTrue(response.startswith(b"\x02\r\n- DIR E:*.*"))
+        self.assertIn(b"E:EHI3EVUG.TTF", response)
+        self.assertTrue(response.endswith(b"\x03"))
+
     def test_rejects_non_ascii_host_identification(self):
         with tempfile.TemporaryDirectory() as directory:
             config_path = Path(directory) / "printer-info.json"

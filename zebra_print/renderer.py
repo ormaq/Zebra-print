@@ -18,6 +18,9 @@ try:
 except ImportError as exc:  # pragma: no cover - exercised by users without deps.
     raise SystemExit("Pillow is required. Install it with: python -m pip install Pillow") from exc
 
+from .font_loader import load_font as load_mapped_font
+from .font_loader import load_font_for_printer_font
+
 
 CONTROL_CHARS = "^~"
 ORIENTATIONS = {"N", "R", "I", "B"}
@@ -951,7 +954,9 @@ class ZPLRenderer:
         if name == "A@" and len(parts) > 3 and parts[3]:
             font_name = normalize_graphic_name(parts[3])
             if font_name not in self.objects and font_name not in self.font_aliases.values():
-                self.warn(f"Stored font not found for ^A@: {font_name}; using fallback font")
+                test_font = load_font_for_printer_font(font_name, height)
+                if not test_font:
+                    self.warn(f"Stored font not found for ^A@: {font_name}; using fallback font")
         elif font_name in self.font_aliases:
             font_name = self.font_aliases[font_name]
         self.font = FontSpec(name=font_name, orientation=orientation, height=height, width=width)
@@ -1271,7 +1276,7 @@ class ZPLRenderer:
 
     def _draw_text(self, text: str) -> None:
         assert self.image is not None
-        font = load_font(self.font.height)
+        font = load_mapped_font(self.font.height, self.font.name)
         lines = self._wrap_text(text, font)
         x, y = self.current_x, self.current_y
         if self.position_is_baseline:
@@ -1288,14 +1293,14 @@ class ZPLRenderer:
                 y += max(1, line_step + self.field_character_gap)
             return
         for line in lines:
-            self._draw_single_text_line(line, x, y, font)
+            self._draw_single_text_line(line, self._justified_line_x(line, x, font), y, font)
             y += max(1, line_step)
 
     def _wrap_text(self, text: str, font: ImageFont.ImageFont) -> list[str]:
         if not self.field_block:
             return text.split("\\&") if "\\&" in text else [text]
         width, max_lines, _line_spacing, _justification = self.field_block
-        if width <= 0:
+        if width <= 0 or max_lines <= 1:
             return [text]
         words = text.replace("\\&", "\n").split()
         lines: list[str] = []
@@ -1313,6 +1318,27 @@ class ZPLRenderer:
         if current and len(lines) < max_lines:
             lines.append(current)
         return lines or [text]
+
+    def _justified_line_x(self, text: str, x: int, font: ImageFont.ImageFont) -> int:
+        if not self.field_block:
+            return x
+        width, _max_lines, _line_spacing, justification = self.field_block
+        justification = justification[:1].upper()
+        if width <= 0 or justification not in {"C", "R"}:
+            return x
+
+        text_width = self._scaled_text_width(text, font)
+        remaining = max(0, width - text_width)
+        if justification == "C":
+            return x + remaining // 2
+        return x + remaining
+
+    def _scaled_text_width(self, text: str, font: ImageFont.ImageFont) -> int:
+        bbox = font.getbbox(text)
+        text_width = max(1, bbox[2] - bbox[0] + 4)
+        if self.font.width and self.font.height:
+            text_width = int(round(text_width * max(0.1, self.font.width / self.font.height)))
+        return text_width
 
     def _draw_single_text_line(self, text: str, x: int, y: int, font: ImageFont.ImageFont) -> None:
         assert self.image is not None
@@ -1342,8 +1368,25 @@ class ZPLRenderer:
                 mask = mask.resize((target_w, mask.height), Image.Resampling.BICUBIC)
 
         mask = rotate_mask(mask, self.font.orientation)
-        color = "white" if self.reverse_print else "black"
-        self.image.paste(color, (x, y), mask)
+        if self.reverse_print:
+            self._invert_masked_area(mask, x, y)
+        else:
+            self.image.paste("black", (x, y), mask)
+
+    def _invert_masked_area(self, mask: Image.Image, x: int, y: int) -> None:
+        assert self.image is not None
+        left = max(0, x)
+        top = max(0, y)
+        right = min(self.image.width, x + mask.width)
+        bottom = min(self.image.height, y + mask.height)
+        if left >= right or top >= bottom:
+            return
+
+        region_box = (left, top, right, bottom)
+        mask_box = (left - x, top - y, right - x, bottom - y)
+        region = self.image.crop(region_box)
+        cropped_mask = mask.crop(mask_box)
+        self.image.paste(ImageChops.invert(region), region_box, cropped_mask)
 
     def _draw_graphic_box(self, params: str) -> None:
         assert self.draw is not None
@@ -2326,20 +2369,8 @@ def normalize_graphic_name(value: str) -> str:
 
 
 def load_font(size: int) -> ImageFont.ImageFont:
-    size = max(1, int(size))
-    candidates = [
-        "C:/Windows/Fonts/arial.ttf",
-        "C:/Windows/Fonts/Arial.ttf",
-        "C:/Windows/Fonts/calibri.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/Library/Fonts/Arial.ttf",
-    ]
-    for candidate in candidates:
-        try:
-            return ImageFont.truetype(candidate, size)
-        except OSError:
-            continue
-    return ImageFont.load_default()
+    """Legacy function for backward compatibility. Use font_loader.load_font() instead."""
+    return load_mapped_font(size)
 
 
 def rotate_mask(mask: Image.Image, orientation: str) -> Image.Image:

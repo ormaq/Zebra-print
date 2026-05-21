@@ -13,6 +13,10 @@ def count_dark_pixels(image):
     return sum(image.convert("L").histogram()[:128])
 
 
+def count_light_pixels(image):
+    return sum(image.convert("L").histogram()[200:])
+
+
 class RendererTests(unittest.TestCase):
     def test_example_label_renders_nonblank(self):
         image, report = render_zpl_file(ROOT / "examples" / "example.zpl", RenderOptions())
@@ -66,6 +70,39 @@ class RendererTests(unittest.TestCase):
         self.assertEqual(image.size, (20, 20))
         self.assertTrue(any("Ignoring non-positive ^PW" in warning for warning in report.warnings))
         self.assertTrue(any("Ignoring non-positive ^LL" in warning for warning in report.warnings))
+
+    def test_reverse_print_text_inverts_underlying_pixels(self):
+        zpl = (
+            "^XA^PW180^LL100"
+            "^FO5,5^GB90,34,34^FS"
+            "^FO12,10^FR^A0N,24,24^FDHI^FS"
+            "^FO12,58^FR^A0N,24,24^FDHI^FS"
+            "^XZ"
+        )
+
+        image, report = render_zpl_bytes(zpl.encode("ascii"), RenderOptions())
+
+        self.assertEqual(report.warnings, [])
+        self.assertGreater(count_light_pixels(image.crop((10, 8, 80, 36))), 20)
+        self.assertGreater(count_dark_pixels(image.crop((10, 56, 80, 90))), 20)
+
+    def test_single_line_field_block_does_not_drop_words(self):
+        zpl = "^XA^PW360^LL90^FO10,20^A0N,30,30^FB120,1,0,L^FDTOP LEVEL KIT:^FS^XZ"
+
+        image, report = render_zpl_bytes(zpl.encode("ascii"), RenderOptions())
+
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(report.rendered_text_fields, 1)
+        self.assertGreater(count_dark_pixels(image.crop((185, 15, 315, 60))), 20)
+
+    def test_field_block_center_justification_offsets_text(self):
+        zpl = "^XA^PW220^LL70^FO10,20^A0N,24,24^FB180,1,0,C^FDHI^FS^XZ"
+
+        image, report = render_zpl_bytes(zpl.encode("ascii"), RenderOptions())
+
+        self.assertEqual(report.warnings, [])
+        self.assertEqual(count_dark_pixels(image.crop((10, 15, 60, 55))), 0)
+        self.assertGreater(count_dark_pixels(image.crop((80, 15, 140, 55))), 20)
 
     def test_first_barcode_batch_renders_supported_symbols(self):
         zpl = (

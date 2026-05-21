@@ -47,11 +47,12 @@ Save incoming jobs as `.zpl` and `.png` files:
 zebra-print proxy --listen-port 9100 --save-dir zpl_jobs
 ```
 
-The proxy binds to `127.0.0.1` by default. To accept jobs from other machines
-on the network, bind explicitly:
+The proxy binds to all local interfaces by default so print jobs sent to this
+machine's hostname or IP address are captured. To restrict it to the same
+machine only, bind explicitly to loopback:
 
 ```powershell
-zebra-print proxy --bind-host 0.0.0.0 --listen-port 9100 --save-dir zpl_jobs
+zebra-print proxy --bind-host 127.0.0.1 --listen-port 9100 --save-dir zpl_jobs
 ```
 
 Print the rendered PNG to a Windows printer:
@@ -77,6 +78,13 @@ Limit large or malformed jobs:
 
 ```powershell
 zebra-print proxy --max-job-bytes 26214400 --max-canvas-pixels 20000000 --max-graphic-bytes 16777216
+```
+
+Keep a client socket open after printer-info queries when the sender reuses one
+TCP connection for query and print traffic:
+
+```powershell
+zebra-print proxy --query-keepalive-timeout 30
 ```
 
 List Windows printers:

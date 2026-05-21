@@ -13,12 +13,20 @@ class FakeSocket:
     def __init__(self, chunks: list[bytes]):
         self.chunks = list(chunks)
         self.timeouts: list[float] = []
+        self.sent: list[bytes] = []
+        self.closed = False
 
     def settimeout(self, timeout: float) -> None:
         self.timeouts.append(timeout)
 
     def recv(self, _size: int) -> bytes:
         return self.chunks.pop(0) if self.chunks else b""
+
+    def sendall(self, data: bytes) -> None:
+        self.sent.append(data)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class ProxyTests(unittest.TestCase):
@@ -69,8 +77,10 @@ class ProxyTests(unittest.TestCase):
 
             self.assertTrue(proxy._is_printer_query(b"~HQES\r\n"))
             self.assertEqual(proxy._detect_query_type(b"^XA~HI^XZ"), "~HI")
+            self.assertEqual(proxy._detect_query_type(b"^XA^HWE:*.*^XZ"), "^HW")
             self.assertFalse(proxy._is_printer_query(b"^XA^FO10,10^A0N,24,24^FD~HI^FS^XZ"))
             self.assertEqual(proxy._detect_query_type(b"^XA^FO10,10^A0N,24,24^FD~HI^FS^XZ"), "UNKNOWN")
+            self.assertFalse(proxy._is_printer_query(b"^XA^HWE:*.*^FO10,10^FDLABEL^FS^XZ"))
 
     def test_read_socket_rejects_oversized_jobs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -84,6 +94,24 @@ class ProxyTests(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "exceeds max job size"):
                 proxy._read_socket_with_query_detection(FakeSocket([b"1234", b"56"]))
+
+    def test_handle_client_keeps_connection_open_after_printer_queries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            proxy = ZPLCaptureProxy(
+                bind_host="127.0.0.1",
+                listen_port=0,
+                save_dir=directory,
+                render_options=RenderOptions(),
+                query_keepalive_timeout=0.01,
+            )
+            client = FakeSocket([b"^XA~HI^XZ", b"^XA^HWE:*.*^XZ", b""])
+
+            proxy.handle_client(client, ("127.0.0.1", 12345), 1)
+
+        self.assertEqual(len(client.sent), 2)
+        self.assertIn(b"ZD621-200dpi", client.sent[0])
+        self.assertIn(b"- DIR E:*.*", client.sent[1])
+        self.assertTrue(client.closed)
 
     def test_invalid_forward_target_exits_with_parser_error(self):
         stderr = io.StringIO()

@@ -1,0 +1,93 @@
+{
+  "comment": "Maps Zebra printer stored fonts to system fonts",
+  "mappings": {
+    "E:EHI3EVUG.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial.ttf"
+      ],
+      "description": "Sans-serif font, map to Arial/DejaVu Sans"
+    },
+    "E:YUF2-X5Q.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial Bold.ttf"
+      ],
+      "description": "Bold font, map to Arial Bold/DejaVu Sans Bold"
+    },
+    "E:0WX16KDN.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial Bold.ttf"
+      ],
+      "description": "Bold font variant"
+    },
+    "E:TMGRV-BU.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/segoeuib.ttf",
+        "C:/Windows/Fonts/arialbd.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial Bold.ttf"
+      ],
+      "description": "Bold font variant"
+    },
+    "E:7YOSWDJB.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial.ttf"
+      ],
+      "description": "Sans-serif font"
+    },
+    "E:CGTRI_N.FNT": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial.ttf"
+      ],
+      "description": "CG Triumvirate font"
+    },
+    "E:CG_TIMES.TTF": {
+      "system_fonts": [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+        "C:/Windows/Fonts/times.ttf",
+        "/Library/Fonts/Times New Roman.ttf"
+      ],
+      "description": "Times font, map to serif font"
+    },
+    "E:CG_TRIUMVIRATE.TTF": {
+      "system_fonts": [
+        "C:/Windows/Fonts/segoeui.ttf",
+        "C:/Windows/Fonts/arial.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/Library/Fonts/Arial.ttf"
+      ],
+      "description": "Triumvirate/Helvetica-like font"
+    }
+  },
+  "default_fallback": [
+    "C:/Windows/Fonts/segoeui.ttf",
+    "C:/Windows/Fonts/arial.ttf",
+    "C:/Windows/Fonts/Arial.ttf",
+    "C:/Windows/Fonts/calibri.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/Library/Fonts/Arial.ttf"
+  ]
+}
